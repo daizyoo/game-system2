@@ -1,91 +1,110 @@
-use std::{
-    any::TypeId,
-    collections::HashMap,
-    io::{Error, Result},
-};
-
-struct App {
-    systems: Systems,
-    datas: Datas,
+struct Query<C: Component> {
+    content: C,
 }
 
-impl App {
-    fn new() -> App {
-        App {
-            systems: Systems { content: vec![] },
-            datas: Datas { content: vec![] },
-        }
+struct Res<R: Resource> {
+    content: R,
+}
+
+impl<T: Component> Query<T> {
+    fn new(content: T) -> Self {
+        Self { content }
     }
 
-    fn add_system<S: System>(&mut self, f: S) {
-        self.systems.add_system(f);
-    }
-
-    fn add_data<T: Arg + 'static>(&mut self, data: T) {
-        let id = TypeId::of::<T>();
-        if let Some(datas) = self.datas.content.get_mut(&id) {
-            datas.push(Box::new(data));
-        }
-    }
-
-    fn run(&self) {
-        for system in self.systems.content.iter() {
-            todo!();
-            // let data = self.datas.content[0].as_ref();
-            // system.run(data.to_string());
-        }
+    fn get(&self) -> &T {
+        &self.content
     }
 }
 
-struct Datas {
-    content: HashMap<TypeId, Vec<Box<dyn Arg>>>,
-}
+trait Component {}
 
-struct Systems {
-    content: Vec<Box<dyn System>>,
-}
-
-impl Systems {
-    fn add_system<T: System>(&mut self, f: T) {
-        self.content.push(Box::new(f))
-    }
-}
-
-trait System: 'static {
-    fn run(&self, arg: String);
-}
+trait Resource {}
 
 trait Arg {}
 
-impl<T: Fn(String) + 'static> System for T {
-    fn run(&self, arg: String) {
-        (self)(arg);
+impl<C: Component> Arg for Query<C> {}
+impl<R: Resource> Arg for Res<R> {}
+
+trait Args {}
+
+impl Args for () {}
+impl<A1: Arg> Args for A1 {}
+impl<A1: Arg, A2: Arg> Args for (A1, A2) {}
+impl<A1: Arg, A2: Arg, A3: Arg> Args for (A1, A2, A3) {}
+impl<A1: Arg, A2: Arg, A3: Arg, A4: Arg> Args for (A1, A2, A3, A4) {}
+
+trait System {
+    type Args: Args;
+
+    fn run(&self, arg: Self::Args);
+}
+
+impl System for fn() {
+    type Args = ();
+    fn run(&self, _: Self::Args) {
+        self()
     }
 }
 
-fn system(s: String) {
-    println!("{}", s);
+impl<A: Arg> System for fn(A) {
+    type Args = A;
+    fn run(&self, arg: Self::Args) {
+        self(arg)
+    }
 }
 
+impl<A1: Arg, A2: Arg> System for fn(A1, A2) {
+    type Args = (A1, A2);
+    fn run(&self, arg: Self::Args) {
+        self(arg.0, arg.1)
+    }
+}
+
+impl<A1: Arg, A2: Arg, A3: Arg> System for fn(A1, A2, A3) {
+    type Args = (A1, A2, A3);
+    fn run(&self, arg: Self::Args) {
+        self(arg.0, arg.1, arg.2)
+    }
+}
+
+/// # Example
+/// ```
+/// fn system(Query<Data>) {
+///     println!("{:?}", q.get());
+/// }
+/// let app = App::new()
+/// app.add_system(system)
+/// app.add_data(Data { value: "Hello World".to_string() })
+/// app.run()
+/// ```
+///
+/// # Output
+/// Hello World
+///
 fn main() {
-    let mut app = App::new();
-    app.add_system(system);
-
-    app.run();
+    let sys = system2 as fn(Query<Data>, Query<Data>);
+    sys.run((
+        Query::new(Data {
+            value: "Data1".to_string(),
+        }),
+        Query::new(Data {
+            value: "Data2".to_string(),
+        }),
+    ));
 }
 
-trait If<T> {
-    fn more_if(self, f: impl FnOnce(&T) -> bool) -> Result<T>;
+#[derive(Debug)]
+#[allow(unused)]
+struct Data {
+    value: String,
 }
 
-impl<T> If<T> for std::result::Result<T, Error> {
-    fn more_if(self, f: impl FnOnce(&T) -> bool) -> Result<T> {
-        self.and_then(|t| {
-            if f(&t) {
-                Ok(t)
-            } else {
-                Err(Error::other("error"))
-            }
-        })
-    }
+fn system(q: Query<Data>) {
+    println!("{:?}", q.get());
 }
+
+fn system2(q: Query<Data>, q2: Query<Data>) {
+    println!("{:?}\n{:?}", q.get(), q2.get());
+}
+
+impl Component for Data {}
